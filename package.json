@@ -1,0 +1,22 @@
+{
+  "name": "wmc-export",
+  "version": "1.0.0",
+  "description": "今日水印相机（5181688.com）团队照片/视频按日期+按人归档导出工具",
+  "main": "index.js",
+  "scripts": {
+    "login": "node src/login.mjs",
+    "probe": "node src/probe.mjs",
+    "export": "node src/export.mjs",
+    "setup": "node src/setup.mjs",
+    "test:ext": "node test/test_b_ui_e2e.mjs",
+    "test:api": "node test/test_a_content_fetch.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "playwright-core": "^1.65.1"
+  },
+  "private": true
+}

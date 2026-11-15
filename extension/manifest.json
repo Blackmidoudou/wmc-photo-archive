@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "今日水印相机 · 团队照片归档",
+  "version": "1.0.0",
+  "description": "把你自己团队的今日水印相机照片/视频，按日期区间和成员姓名归档到本地文件夹。",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "downloads",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://www.5181688.com/*",
+    "https://webapi.5181688.com/*",
+    "https://net-cloud-tx.xhey.top/*",
+    "https://net-cloud.xhey.top/*",
+    "https://net-private.xhey.top/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "打开团队照片归档工具",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

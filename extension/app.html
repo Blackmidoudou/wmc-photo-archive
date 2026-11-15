@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>团队照片归档</title>
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <h1>团队照片归档</h1>
+        <span id="groupName" class="muted"></span>
+        <span id="vipTip" class="muted"></span>
+      </div>
+      <div id="conn" class="pill pill-warn">连接中…</div>
+    </header>
+
+    <!-- 筛选工具条 -->
+    <section class="card filters">
+      <div class="frow">
+        <button id="dateBtn" class="fbtn">选择日期 ▾</button>
+        <button id="memberBtn" class="fbtn">筛选人员 · 全部成员 ▾</button>
+        <button id="wmBtn" class="fbtn">筛选水印 · 全部 ▾</button>
+        <button id="groupBtn" class="chip">分组管理</button>
+        <span class="grow"></span>
+        <button id="btnQuery" class="primary">查询</button>
+        <button id="btnReset" class="chip">重置</button>
+      </div>
+      <div class="quickrow">
+        <a data-quick="today">今天</a>
+        <a data-quick="yesterday">昨天</a>
+        <a data-quick="30d">过去30天</a>
+        <a data-quick="month">本月</a>
+        <a data-quick="6m">过去6个月</a>
+        <span class="muted" id="rangeTip"></span>
+      </div>
+    </section>
+
+    <!-- 结果 -->
+    <section class="card" id="resultCard" hidden>
+      <div class="head">
+        <strong id="countText">0 张照片</strong>
+        <label class="chk"><input type="checkbox" id="chkAll" /> 全选</label>
+        <span class="muted" id="selText">已选择 0 张照片</span>
+        <span class="grow"></span>
+        <button id="btnDownload" class="primary">下载</button>
+        <button id="btnClean" class="chip">清理缓存</button>
+      </div>
+
+      <div id="grid" class="grid"></div>
+
+      <div class="pager">
+        <button class="chip" id="prevPage">上一页</button>
+        <span id="pageInfo" class="muted"></span>
+        <button class="chip" id="nextPage">下一页</button>
+        <span class="grow"></span>
+        <label class="chk"><input type="checkbox" id="cleanAfter" checked /> 下载后清理缓存</label>
+      </div>
+
+      <div class="bar"><div id="barFill"></div></div>
+      <div id="log" class="log"></div>
+    </section>
+
+    <!-- 日期弹窗 -->
+    <div class="overlay" id="dateDlg" hidden>
+      <div class="dialog wide">
+        <div class="dlg-head">
+          <strong>选择日期</strong>
+          <button class="x" data-close>✕</button>
+        </div>
+        <div class="date-body">
+          <div class="quickcol" id="quickCol"></div>
+          <div class="calwrap">
+            <div class="tabs">
+              <button class="tab active" data-mode="range">多天</button>
+              <button class="tab" data-mode="single">单天</button>
+            </div>
+            <div id="calendars" class="calendars"></div>
+            <div class="cal-foot"><span id="dateLabel" class="muted"></span></div>
+          </div>
+        </div>
+        <div class="dlg-foot">
+          <span class="grow"></span>
+          <button class="chip" data-close>取消</button>
+          <button class="primary" id="dateOk">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 成员弹窗 -->
+    <div class="overlay" id="memberDlg" hidden>
+      <div class="dialog wide">
+        <div class="dlg-head">
+          <strong>筛选成员</strong>
+          <button class="x" data-close>✕</button>
+        </div>
+        <div class="member-body">
+          <div class="mcol">
+            <div class="mcol-head">
+              <span>选择</span>
+              <button class="link" id="mAll">全选</button>
+            </div>
+            <input class="msearch" id="mSearch" placeholder="搜索姓名" />
+            <div class="mtree" id="mTree"></div>
+          </div>
+          <div class="mcol">
+            <div class="mcol-head">
+              <span>已选</span>
+              <button class="link" id="mClear">清空</button>
+            </div>
+            <div class="mpicked" id="mPicked"></div>
+          </div>
+        </div>
+        <div class="dlg-foot">
+          <label class="chk"><input type="checkbox" id="onlyActive" checked /> 仅显示当前在团队的成员</label>
+          <span class="grow"></span>
+          <button class="chip" data-close>取消</button>
+          <button class="primary" id="memberOk">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 水印弹窗 -->
+    <div class="overlay" id="wmDlg" hidden>
+      <div class="dialog">
+        <div class="dlg-head">
+          <strong>筛选水印</strong>
+          <button class="x" data-close>✕</button>
+        </div>
+        <div class="wmlist" id="wmList"></div>
+        <div class="dlg-foot">
+          <span class="grow"></span>
+          <button class="chip" data-close>取消</button>
+          <button class="primary" id="wmOk">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 分组管理 -->
+    <div class="overlay" id="groupDlg" hidden>
+      <div class="dialog wide">
+        <div class="dlg-head">
+          <strong>分组管理</strong>
+          <button class="x" data-close>✕</button>
+        </div>
+        <div class="group-body">
+          <div class="gcol">
+            <div class="mcol-head"><span>部门</span><span class="muted">仅存本机，清理缓存不会删</span></div>
+            <div class="addrow">
+              <input id="gName" placeholder="新部门名称，例如：技术组" />
+              <button class="primary" id="gAdd">添加</button>
+            </div>
+            <div class="glist" id="gList"></div>
+          </div>
+          <div class="gcol">
+            <div class="mcol-head"><span>成员归属</span><span class="muted" id="gCount"></span></div>
+            <input class="msearch" id="gSearch" placeholder="搜索成员" />
+            <div class="gassign" id="gAssign"></div>
+          </div>
+        </div>
+        <div class="dlg-foot">
+          <span class="muted">接口拿不到部门时，用这里手动把成员分组；分组只影响「筛选人员」的树，不影响查询接口</span>
+          <span class="grow"></span>
+          <button class="chip" data-close>取消</button>
+          <button class="primary" id="gSave">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 登录 -->
+    <div class="overlay" id="loginDlg" hidden>
+      <div class="dialog login-dialog">
+        <div class="dlg-head">
+          <strong>登录今日水印相机</strong>
+          <button class="x" data-close>✕</button>
+        </div>
+        <div class="login-body">
+          <iframe id="loginFrame" src="about:blank" referrerpolicy="no-referrer"></iframe>
+        </div>
+        <div class="dlg-foot login-foot">
+          <span class="muted">手机号验证码或微信扫码，登录成功后会自动关闭连接</span>
+          <span class="grow"></span>
+          <button class="chip" id="loginPopup">改在独立窗口登录</button>
+          <button class="primary" id="loginRetry">我已登录，重试</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 下载设置 -->
+    <div class="overlay" id="downloadDlg" hidden>
+      <div class="dialog wide">
+        <div class="dlg-head">
+          <strong>图片 / 视频下载</strong>
+          <button class="x" data-close>✕</button>
+        </div>
+
+        <div class="dl-body">
+          <div class="dl-sec">
+            <div class="dl-title">照片分类保存</div>
+            <div class="dl-grid">
+              <div class="dl-left">
+                <label class="dl-row"><span>一级文件夹</span><select id="lv0"></select></label>
+                <label class="dl-row"><span>二级文件夹(可选)</span><select id="lv1"></select></label>
+                <label class="dl-row"><span>三级文件夹(可选)</span><select id="lv2"></select></label>
+              </div>
+              <div class="dl-right">
+                <div class="dl-preview-title">下载预览<span class="muted">（按前 100 张生成，下载后以实际为准）</span></div>
+                <div class="dl-preview" id="dlPreview"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="dl-sec">
+            <div class="dl-title">照片 / 视频命名方式</div>
+            <div class="dl-example">示例：<span id="dlExample"></span></div>
+            <div class="dl-tokens">
+              <div class="chips" id="dlChips"></div>
+              <select id="dlTokenAdd"><option value="">＋ 添加字段</option></select>
+            </div>
+          </div>
+        </div>
+
+        <div class="dlg-foot">
+          <span class="muted" id="dlCount"></span>
+          <span class="grow"></span>
+          <button class="chip" data-close>取消</button>
+          <button class="primary" id="dlGo">选择目录并下载</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 预览 -->
+    <div class="viewer" id="viewer" hidden>
+      <div class="v-head">
+        <span id="vTitle"></span>
+        <span class="grow"></span>
+        <button class="vbtn" id="vDownload">下载这张</button>
+        <button class="vbtn" id="vClose">✕ 关闭</button>
+      </div>
+      <button class="vnav left" id="vPrev">‹</button>
+      <div class="v-stage" id="vStage"></div>
+      <button class="vnav right" id="vNext">›</button>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
