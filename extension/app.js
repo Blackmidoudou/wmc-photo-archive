@@ -242,12 +242,25 @@ async function directApi(kind, args = {}) {
     return (j.data && j.data.payload) || [];
   }
   if (kind === 'list') return directList(args);
+  if (kind === 'notvip') return directNotvip(args);
   throw new Error('未知请求：' + kind);
 }
 
-async function directList(args) {
+async function directNotvip(args) {
+  // 平台自己的「非会员受限」口径：返回 isVip 与受限张数
+  const j = await directPost('/v5/workgroup/photos/notvip/count', {
+    filter: buildFilter(args),
+    isPreciseSearch: false,
+    isAscSort: false,
+    groupID: args.groupID,
+    lastPageCond: '',
+  });
+  return j || {};
+}
+
+function buildFilter(args) {
   const userIDs = args.userIDs || [];
-  const filter = {
+  return {
     searchKeywords: [],
     mediaType: args.mediaType === undefined ? null : args.mediaType,
     sourceType: null,
@@ -268,6 +281,10 @@ async function directList(args) {
     labelMatchAll: false,
     untaggedOnly: false,
   };
+}
+
+async function directList(args) {
+  const filter = buildFilter(args);
   const j = await directPost('/v5/workgroup/photos', {
     filter,
     isPreciseSearch: false,
@@ -279,7 +296,7 @@ async function directList(args) {
   return j.payload;
 }
 
-const PAGE_FN = { context: ipContext, dept: ipDept, watermarks: ipWatermarks, list: ipList };
+const PAGE_FN = { context: ipContext, dept: ipDept, watermarks: ipWatermarks, list: ipList, notvip: ipList };
 
 /** 统一入口：先直连，失败则回退到页面通道（会开后台标签页）。 */
 async function api(kind, args = {}) {
@@ -379,6 +396,7 @@ async function connect({ silent = false } = {}) {
       $('groupName').textContent = S.group?.group_name || '';
       const exp = S.group?.vip_info?.expire_time;
       $('vipTip').textContent = exp ? `会员 ${Math.max(0, Math.ceil((exp * 1000 - Date.now()) / DAY))} 天后到期` : '';
+      renderVipBanner();
       if (!silent) log(`已连接「${S.group?.group_name || ''}」`, 'ok');
       return true;
     }
@@ -392,6 +410,30 @@ async function connect({ silent = false } = {}) {
     if (!silent) log(e.message, 'err');
     return false;
   }
+}
+
+function renderVipBanner() {
+  const el = $('vipBanner');
+  const vip = S.group?.vip_info;
+  const exp = vip?.expire_time ? vip.expire_time * 1000 : 0;
+  const isVip = S.group?.is_vip !== false && (!exp || exp > Date.now());
+  S.isVip = isVip;
+  if (!isVip) {
+    el.className = 'banner banner--err';
+    el.innerHTML =
+      '<b>当前账号不是有效会员</b>：今日水印相机对非会员限制照片查看与批量下载，' +
+      '被平台标记为受限的照片本工具会跳过、不会下载（也不会绕过该限制）。' +
+      '可联系团队管理员用有会员的账号导出，或续费会员后再用。';
+    el.hidden = false;
+    return;
+  }
+  if (exp && exp - Date.now() < 7 * 86400000) {
+    el.className = 'banner banner--warn';
+    el.innerHTML = `<b>会员 ${Math.max(1, Math.ceil((exp - Date.now()) / 86400000))} 天后到期</b>：到期后平台会限制照片查看与批量下载，建议先把要留的日期导完。`;
+    el.hidden = false;
+    return;
+  }
+  el.hidden = true;
 }
 
 async function loadOrg() {
@@ -921,6 +963,9 @@ async function query() {
           thumb: ph.smallURL || '',
           addr: ph.addr || '',
           restricted: !!((ph.temporaryPhotoThaw && ph.temporaryPhotoThaw.isRestricted) || ph.isLimitViewByPhotoCount),
+          flagThaw: !!(ph.temporaryPhotoThaw && ph.temporaryPhotoThaw.isRestricted),
+          flagLimit: !!ph.isLimitViewByPhotoCount,
+          hasUrl: !!(ph.videoURL || ph.largeURL),
           wm: '',
         });
       }
@@ -933,6 +978,28 @@ async function query() {
       await sleep(250);
     }
     await resolveWatermarks(args);
+
+    // 受限照片诊断：把"为什么下不了"直接写进日志
+    const restricted = S.items.filter((i) => i.restricted).length;
+    if (restricted) {
+      log(`受限照片 ${restricted}/${S.items.length} 张（平台标记需会员，本工具不下载、不绕过）`, 'err');
+      const s0 = S.items.find((i) => i.restricted);
+      if (s0) {
+        log(
+          `诊断样例：temporaryPhotoThaw.isRestricted=${s0.flagThaw} · isLimitViewByPhotoCount=${s0.flagLimit} · 原图地址=${s0.hasUrl ? '有' : '无'}`,
+        );
+      }
+      try {
+        const nv = await api('notvip', { ...args, cursor: '' });
+        log(`平台口径 notvip/count：isVip=${nv?.isVip} · 受限 ${nv?.photoCount ?? '?'} 张`);
+      } catch (e) {
+        log(`notvip/count 读取失败：${e.message}`);
+      }
+      if (restricted === S.items.length) {
+        log('当前筛选下全部照片都受限，可下载 0 张 —— 这是平台对非会员的限制', 'err');
+      }
+    }
+
     renderGrid();
     $('resultCard').hidden = false;
     log(`查询完成：${S.items.length} 张`, 'ok');
@@ -1282,6 +1349,39 @@ async function downloadItems(items) {
   if ($('cleanAfter').checked) clearCache({ silent: true });
 }
 
+// ============ 导出清单（只含元数据，不含照片）============
+function csvCell(v) {
+  const t = String(v == null ? '' : v);
+  return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+}
+
+function exportList() {
+  if (!S.items.length) return log('还没有查询结果', 'err');
+  const head = ['姓名', '部门', '拍摄时间', '类型', '水印', '是否受限', '预计文件名'];
+  const rows = S.items.map((it) => [
+    it.person,
+    deptNameOf(it) || '',
+    `${fmtDate(it.time)} ${fmtTime(it.time)}`,
+    it.mediaType === 1 ? '视频' : '照片',
+    it.wm || '',
+    it.restricted ? '受限(需会员)' : '可下载',
+    buildFileName(it),
+  ]);
+  const csv = '\ufeff' + [head, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `照片清单_${S.from}_${S.to}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    URL.revokeObjectURL(a.href);
+    a.remove();
+  }, 1000);
+  const limitedCount = S.items.filter((i) => i.restricted).length;
+  log(`已导出清单 ${S.items.length} 条（其中受限 ${limitedCount} 条）→ ${a.download}`, 'ok');
+}
+
 // ============ 缓存清理 ============
 function clearCache({ silent = false } = {}) {
   closeViewer();
@@ -1421,6 +1521,8 @@ function bind() {
   };
   $('prevPage').onclick = () => { S.page = Math.max(0, S.page - 1); renderGrid(); };
   $('nextPage').onclick = () => { S.page++; renderGrid(); };
+  $('btnCsv').onclick = () => exportList();
+
   $('btnDownload').onclick = () => {
     const picked = S.items.filter((i) => S.selected.has(i.seq) && !i.restricted);
     if (!picked.length) return log('还没有勾选照片', 'err');

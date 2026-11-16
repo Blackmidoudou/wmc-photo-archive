@@ -119,6 +119,7 @@ await page.addInitScript(
         if (u.includes('/web/workgroup/v3/query/group')) return json({ data: GROUP });
         if (u.includes('/web/department/v2/tree')) return json({ data: impl.ipDept({ deptID: String((body.departmentIDList || [0])[0]) }) });
         if (u.includes('/v4/workgroup/watermarks')) return json({ data: { payload: WM_DEFS } });
+        if (u.includes('/v5/workgroup/photos/notvip/count')) return json({ status: 0, isVip: 1, photoCount: 0 });
         if (u.includes('/v5/workgroup/photos')) {
           const p = impl.ipList({ userIDs: body.filter.userIDList, cursor: body.lastPageCond, watermarks: body.filter.watermarks });
           return json({ status: 0, payload: p });
@@ -202,6 +203,8 @@ await page.waitForTimeout(1500);
 check('重置后查到全部 4 条', /4 张照片/.test(await page.textContent('#countText')), await page.textContent('#countText'));
 check('受限项带「需会员」遮罩', (await page.locator('#grid .limit').count()) === 1);
 check('受限项不可勾选', (await page.locator('#grid input[data-sel]').count()) === 3, String(await page.locator('#grid input[data-sel]').count()));
+const logTxt = await page.textContent('#log');
+check('受限照片有诊断日志', /受限照片 1\/4 张/.test(logTxt) && /notvip\/count/.test(logTxt), logTxt.split('\n').slice(-3).join(' | '));
 
 // ⑥ 预览
 await page.click('#grid .thumb-wrap[data-open="111"]');
@@ -215,6 +218,12 @@ check('可切到下一张（视频）', (await page.locator('#vStage video').cou
 await page.click('#vClose');
 await page.waitForTimeout(200);
 check('预览可关闭', !(await page.isVisible('#viewer')));
+
+// ⑥-2 导出清单（CSV，只含元数据）
+const dlPromise = page.waitForEvent('download', { timeout: 8000 }).catch(() => null);
+await page.click('#btnCsv');
+const dl = await dlPromise;
+check('可导出清单 CSV', !!dl && /照片清单.*\.csv$/.test(dl.suggestedFilename() || ''), dl ? dl.suggestedFilename() : '未触发下载');
 
 // ⑦ 全选 → 下载设置弹窗
 await page.check('#chkAll');
