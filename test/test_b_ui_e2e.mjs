@@ -201,10 +201,10 @@ await page.waitForTimeout(300);
 await page.click('#btnQuery');
 await page.waitForTimeout(1500);
 check('重置后查到全部 4 条', /4 张照片/.test(await page.textContent('#countText')), await page.textContent('#countText'));
-check('受限项带「需会员」遮罩', (await page.locator('#grid .limit').count()) === 1);
-check('受限项不可勾选', (await page.locator('#grid input[data-sel]').count()) === 3, String(await page.locator('#grid input[data-sel]').count()));
+check('平台标记项带「平台标记」角标', (await page.locator('#grid .flag').count()) === 1);
+check('平台标记项仍可勾选（逐张保存）', (await page.locator('#grid input[data-sel]').count()) === 4, String(await page.locator('#grid input[data-sel]').count()));
 const logTxt = await page.textContent('#log');
-check('受限照片有诊断日志', /受限照片 1\/4 张/.test(logTxt) && /notvip\/count/.test(logTxt), logTxt.split('\n').slice(-3).join(' | '));
+check('平台标记有诊断日志', /平台标记 1\/4 张/.test(logTxt) && /notvip\/count/.test(logTxt), logTxt.split('\n').slice(-3).join(' | '));
 
 // ⑥ 预览
 await page.click('#grid .thumb-wrap[data-open="111"]');
@@ -228,7 +228,7 @@ check('可导出清单 CSV', !!dl && /照片清单.*\.csv$/.test(dl.suggestedFil
 // ⑦ 全选 → 下载设置弹窗
 await page.check('#chkAll');
 await page.waitForTimeout(250);
-check('全选只勾可下载的 3 张', (await page.textContent('#selText')).includes('已选择 3'), await page.textContent('#selText'));
+check('全选包含平台标记项（4 张）', (await page.textContent('#selText')).includes('已选择 4'), await page.textContent('#selText'));
 
 await page.click('#btnDownload');
 await page.waitForTimeout(500);
@@ -240,7 +240,7 @@ const chips = await page.$$eval('#dlChips .chip-tag', (els) => els.map((e) => e.
 check('命名默认 4 个字段', chips.join('/') === '拍摄人姓名/拍摄日期/拍摄时间/水印名称', chips.join('/'));
 check('预览显示一级目录', (await page.textContent('#dlPreview')).includes('张伟'), (await page.textContent('#dlPreview')).slice(0, 60));
 check('示例文件名正确', /张伟 2026-11-15 18_34_46 打卡水印\.jpg/.test(await page.textContent('#dlExample')), await page.textContent('#dlExample'));
-check('底部显示已选张数', (await page.textContent('#dlCount')).includes('3'), await page.textContent('#dlCount'));
+check('底部显示已选张数', (await page.textContent('#dlCount')).includes('4'), await page.textContent('#dlCount'));
 
 // 改一级为「拍摄日期」→ 预览跟着变
 await page.selectOption('#lv0', 'date');
@@ -253,7 +253,7 @@ await page.waitForTimeout(300);
 await page.click('#dlGo');
 await page.waitForTimeout(1800);
 const w1 = await mediaWrites();
-check('下载 3 个文件', w1.length === 3, w1.join(' | '));
+check('下载 4 个文件（含平台标记那张）', w1.length === 4, w1.join(' | '));
 check(
   '默认布局：姓名/日期 + 姓名 日期 时间 水印',
   w1.includes('OUT/张伟/2026-11-15/张伟 2026-11-15 18_34_46 打卡水印.jpg'),
@@ -280,8 +280,8 @@ check(
   w2.includes('OUT/2026-11-15/张伟 2026-11-15 18_34_46.jpg'),
   w2.slice(3).join(' | '),
 );
-check('重复下载照样写入（覆盖）', w2.length === 6, String(w2.length));
-check('覆盖后无失败', /失败 0/.test(await page.textContent('#log')), await logTail());
+check('重复下载照样写入（覆盖）', w2.length === 8, String(w2.length));
+check('覆盖后无失败', /完成：下载 4 张/.test(await page.textContent('#log')) && !/被平台拒绝/.test(await page.textContent('#log')), await logTail());
 
 // ⑨ 手动分组：建部门 + 归类成员 + 持久化 + 清缓存不影响
 await page.click('#groupBtn');

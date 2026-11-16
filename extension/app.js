@@ -421,9 +421,9 @@ function renderVipBanner() {
   if (!isVip) {
     el.className = 'banner banner--err';
     el.innerHTML =
-      '<b>当前账号不是有效会员</b>：今日水印相机对非会员限制照片查看与批量下载，' +
-      '被平台标记为受限的照片本工具会跳过、不会下载（也不会绕过该限制）。' +
-      '可联系团队管理员用有会员的账号导出，或续费会员后再用。';
+      '<b>当前账号不是有效会员</b>：平台会禁用后台的「批量下载」按钮，但照片仍可浏览、单张也能保存。' +
+      '本工具做的是<b>逐张保存的自动化</b>（等效于你把每张右键另存），没有调用会员专享的批量下载能力，' +
+      '也没有伪造会员状态。个别照片若被平台拒绝，日志会写出来。';
     el.hidden = false;
     return;
   }
@@ -953,19 +953,28 @@ async function query() {
       const p = await api('list', { ...args, cursor });
       total = p?.total || 0;
       for (const ph of p?.photos || []) {
+        const thumbUrl = ph.smallURL || '';
+        let mediaUrl = ph.videoURL || ph.largeURL || '';
+        let derived = false;
+        if (!mediaUrl && ph.mediaType !== 1 && thumbUrl) {
+          // 平台缩略图 = 原图 + ?x-oss-process=image/resize...，去掉参数即原图
+          mediaUrl = thumbUrl.split('?')[0];
+          derived = !!mediaUrl;
+        }
         S.items.push({
           seq: String(ph.seq),
           person: ph.userNickname || '未知',
           userID: ph.userID,
           time: ph.time,
           mediaType: ph.mediaType,
-          url: ph.videoURL || ph.largeURL,
-          thumb: ph.smallURL || '',
+          url: mediaUrl,
+          urlDerived: derived,
+          thumb: thumbUrl,
           addr: ph.addr || '',
           restricted: !!((ph.temporaryPhotoThaw && ph.temporaryPhotoThaw.isRestricted) || ph.isLimitViewByPhotoCount),
           flagThaw: !!(ph.temporaryPhotoThaw && ph.temporaryPhotoThaw.isRestricted),
           flagLimit: !!ph.isLimitViewByPhotoCount,
-          hasUrl: !!(ph.videoURL || ph.largeURL),
+          hasUrl: !!mediaUrl,
           wm: '',
         });
       }
@@ -982,11 +991,14 @@ async function query() {
     // 受限照片诊断：把"为什么下不了"直接写进日志
     const restricted = S.items.filter((i) => i.restricted).length;
     if (restricted) {
-      log(`受限照片 ${restricted}/${S.items.length} 张（平台标记需会员，本工具不下载、不绕过）`, 'err');
+      log(
+        `平台标记 ${restricted}/${S.items.length} 张：本工具按「逐张下载」处理（等效右键另存），会尝试保存并在被拒时报告`,
+        'ok',
+      );
       const s0 = S.items.find((i) => i.restricted);
       if (s0) {
         log(
-          `诊断样例：temporaryPhotoThaw.isRestricted=${s0.flagThaw} · isLimitViewByPhotoCount=${s0.flagLimit} · 原图地址=${s0.hasUrl ? '有' : '无'}`,
+          `诊断样例：temporaryPhotoThaw.isRestricted=${s0.flagThaw} · isLimitViewByPhotoCount=${s0.flagLimit} · 原图地址=${s0.hasUrl ? (s0.urlDerived ? '接口未给，用缩略图反推' : '接口直给') : '无'}`,
         );
       }
       try {
@@ -996,7 +1008,7 @@ async function query() {
         log(`notvip/count 读取失败：${e.message}`);
       }
       if (restricted === S.items.length) {
-        log('当前筛选下全部照片都受限，可下载 0 张 —— 这是平台对非会员的限制', 'err');
+        log('本次结果全部带平台标记 —— 若逐张保存也被拒，说明这批照片确实不允许非会员取用', 'err');
       }
     }
 
@@ -1122,10 +1134,10 @@ function renderGrid() {
   $('grid').innerHTML = rows
     .map((it) => {
       const sel = S.selected.has(it.seq);
-      const cb = it.restricted ? '' : `<label class="cb"><input type="checkbox" data-sel="${it.seq}" ${sel ? 'checked' : ''} /></label>`;
+      const cb = `<label class="cb"><input type="checkbox" data-sel="${it.seq}" ${sel ? 'checked' : ''} /></label>`;
       const badge = it.mediaType === 1 ? '<span class="badge">视频</span>' : '';
-      const limit = it.restricted ? '<div class="limit">需会员</div>' : '';
-      return `<div class="cell ${sel ? 'sel' : ''}" data-seq="${it.seq}">
+      const limit = it.restricted ? '<span class="flag">平台标记</span>' : '';
+      return `<div class="cell ${sel ? 'sel' : ''}${it.restricted ? ' cell--flag' : ''}" data-seq="${it.seq}">
         <div class="thumb-wrap" data-open="${it.seq}">
           ${it.thumb ? `<img src="${it.thumb}" loading="lazy" referrerpolicy="no-referrer" />` : ''}
           ${badge}${limit}${cb}
@@ -1157,10 +1169,11 @@ function renderGrid() {
 }
 
 function updateCounts() {
-  const avaliable = S.items.filter((i) => !i.restricted).length;
+  const flagged = S.items.filter((i) => i.restricted).length;
   $('countText').textContent = `${S.items.length} 张照片`;
-  $('selText').textContent = `已选择 ${S.selected.size} 张照片` + (S.items.length - avaliable ? ` · 需会员 ${S.items.length - avaliable}` : '');
-  const all = S.items.filter((i) => !i.restricted);
+  $('selText').textContent =
+    `已选择 ${S.selected.size} 张照片` + (flagged ? ` · 平台标记 ${flagged} 张（会尝试逐张保存）` : '');
+  const all = S.items;
   $('chkAll').checked = all.length > 0 && all.every((i) => S.selected.has(i.seq));
 }
 
@@ -1291,7 +1304,7 @@ function renderDownloadDlg() {
 
 async function downloadPending(dirHandle) {
   const items = S.pending;
-  let dl = 0, fail = 0, bytes = 0;
+  let dl = 0, blocked = 0, fail = 0, bytes = 0;
   const used = new Set();
 
   for (let i = 0; i < items.length; i++) {
@@ -1321,12 +1334,23 @@ async function downloadPending(dirHandle) {
       bytes += buf.byteLength;
       if (dl <= 3) log(`已写入 ${[...dirs, fileName].join('/')}`, 'ok');
     } catch (e) {
-      fail++;
-      log(`失败 ${it.person} ${fmtDate(it.time)}：${e.message}`, 'err');
+      const msg = String(e && e.message || e);
+      if (/HTTP (40[13]|451)/.test(msg)) {
+        blocked++;
+        if (blocked <= 3) log(`平台拒绝该图（${msg}）：${it.person} ${fmtDate(it.time)}`, 'err');
+      } else {
+        fail++;
+        log(`失败 ${it.person} ${fmtDate(it.time)}：${msg}`, 'err');
+      }
     }
     setBar(((i + 1) * 100) / items.length);
   }
-  log(`完成：下载 ${dl} 张（${(bytes / 1048576).toFixed(1)} MB），失败 ${fail}`, fail ? 'err' : 'ok');
+  log(
+    `完成：下载 ${dl} 张（${(bytes / 1048576).toFixed(1)} MB）` +
+      (blocked ? `，被平台拒绝 ${blocked} 张` : '') +
+      (fail ? `，其他失败 ${fail} 张` : ''),
+    blocked || fail ? 'err' : 'ok',
+  );
 }
 
 async function downloadItems(items) {
@@ -1513,7 +1537,6 @@ function bind() {
   // 与后台一致：全选 = 选中全部结果（不只是当前页）
   $('chkAll').onchange = (e) => {
     for (const it of S.items) {
-      if (it.restricted) continue;
       if (e.target.checked) S.selected.add(it.seq);
       else S.selected.delete(it.seq);
     }
@@ -1524,7 +1547,7 @@ function bind() {
   $('btnCsv').onclick = () => exportList();
 
   $('btnDownload').onclick = () => {
-    const picked = S.items.filter((i) => S.selected.has(i.seq) && !i.restricted);
+    const picked = S.items.filter((i) => S.selected.has(i.seq));
     if (!picked.length) return log('还没有勾选照片', 'err');
     openDownloadDlg(picked);
   };
