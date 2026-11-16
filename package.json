@@ -1,6 +1,6 @@
 {
   "name": "wmc-export",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "今日水印相机（5181688.com）团队照片/视频按日期+按人归档导出工具",
   "main": "index.js",
   "scripts": {

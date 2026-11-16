@@ -954,13 +954,17 @@ async function query() {
       total = p?.total || 0;
       for (const ph of p?.photos || []) {
         const thumbUrl = ph.smallURL || '';
-        let mediaUrl = ph.videoURL || ph.largeURL || '';
+        const isVideo = ph.mediaType === 1;
+        const videoUrl = ph.videoURL || '';
+        let imageUrl = ph.largeURL || '';
         let derived = false;
-        if (!mediaUrl && ph.mediaType !== 1 && thumbUrl) {
-          // 平台缩略图 = 原图 + ?x-oss-process=image/resize...，去掉参数即原图
-          mediaUrl = thumbUrl.split('?')[0];
-          derived = !!mediaUrl;
+        if (!imageUrl && thumbUrl) {
+          // 平台缩略图 = 原图 + ?x-oss-process=image/resize...，去掉参数即原图（图片；视频则是首帧）
+          imageUrl = thumbUrl.split('?')[0];
+          derived = !!imageUrl;
         }
+        // 视频优先用视频地址；图片用原图地址
+        const mediaUrl = isVideo ? videoUrl : imageUrl;
         S.items.push({
           seq: String(ph.seq),
           person: ph.userNickname || '未知',
@@ -968,6 +972,8 @@ async function query() {
           time: ph.time,
           mediaType: ph.mediaType,
           url: mediaUrl,
+          imageUrl,
+          videoUrl,
           urlDerived: derived,
           thumb: thumbUrl,
           addr: ph.addr || '',
@@ -975,6 +981,7 @@ async function query() {
           flagThaw: !!(ph.temporaryPhotoThaw && ph.temporaryPhotoThaw.isRestricted),
           flagLimit: !!ph.isLimitViewByPhotoCount,
           hasUrl: !!mediaUrl,
+          hasVideo: !!videoUrl,
           wm: '',
         });
       }
@@ -1190,10 +1197,14 @@ function renderViewer() {
   const it = S.viewList[S.viewIndex];
   if (!it) return;
   $('vTitle').textContent = `${it.person} · ${fmtDate(it.time)} ${fmtTime(it.time)}${it.wm ? ' · ' + it.wm : ''}`;
-  $('vStage').innerHTML =
-    it.mediaType === 1
-      ? `<video src="${it.url}" controls autoplay playsinline></video>`
-      : `<img src="${it.url}" referrerpolicy="no-referrer" />`;
+  if (it.mediaType === 1) {
+    $('vStage').innerHTML = it.videoUrl
+      ? `<video src="${it.videoUrl}" controls autoplay playsinline></video>`
+      : `<div class="v-note">该视频没有可播放地址（平台未返回 videoURL）<br />
+          下面是首帧快照：<br /><img src="${it.imageUrl || ''}" referrerpolicy="no-referrer" style="max-height:60vh;margin-top:10px" /></div>`;
+  } else {
+    $('vStage').innerHTML = `<img src="${it.imageUrl || it.url}" referrerpolicy="no-referrer" />`;
+  }
   $('vPrev').disabled = S.viewIndex <= 0;
   $('vNext').disabled = S.viewIndex >= S.viewList.length - 1;
 }
@@ -1304,11 +1315,22 @@ function renderDownloadDlg() {
 
 async function downloadPending(dirHandle) {
   const items = S.pending;
-  let dl = 0, blocked = 0, fail = 0, bytes = 0;
+  let dl = 0, blocked = 0, noUrl = 0, fail = 0, bytes = 0;
   const used = new Set();
 
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
+    if (!it.url) {
+      noUrl++;
+      if (noUrl <= 3) {
+        log(
+          `无可用地址，跳过：${it.person} ${fmtDate(it.time)}${it.mediaType === 1 ? '（视频：平台未返回 videoURL）' : ''}`,
+          'err',
+        );
+      }
+      setBar(((i + 1) * 100) / items.length);
+      continue;
+    }
     try {
       const res = await fetch(it.url, { credentials: 'omit', cache: 'no-store' });
       if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -1348,8 +1370,9 @@ async function downloadPending(dirHandle) {
   log(
     `完成：下载 ${dl} 张（${(bytes / 1048576).toFixed(1)} MB）` +
       (blocked ? `，被平台拒绝 ${blocked} 张` : '') +
+      (noUrl ? `，无可用地址 ${noUrl} 张` : '') +
       (fail ? `，其他失败 ${fail} 张` : ''),
-    blocked || fail ? 'err' : 'ok',
+    blocked || noUrl || fail ? 'err' : 'ok',
   );
 }
 
