@@ -207,3 +207,5 @@ input[type="checkbox"] { width: auto; margin: 0; }
 .cell--flag .thumb-wrap { outline: 1px dashed #f59e0b; outline-offset: -1px; }
 
 .v-note { color: #e5e7eb; font-size: 13px; text-align: center; line-height: 1.9; }
+
+.account { display: flex; align-items: center; gap: 10px; }

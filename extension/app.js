@@ -382,6 +382,53 @@ async function loginInPopup() {
   }
 }
 
+// ============ 退出 / 切换账号 ============
+// 登录态是 5181688 域上的 cookie；清掉它们等价于在浏览器里"退出登录"。
+// 不依赖平台的 logout 接口（各版本不一定有），清 cookie 最可靠。
+async function signOut({ thenLogin = true } = {}) {
+  let removed = 0;
+  try {
+    const cookies = await chrome.cookies.getAll({ domain: '5181688.com' });
+    for (const c of cookies) {
+      const host = String(c.domain || '').replace(/^\./, '');
+      const url = `${c.secure ? 'https' : 'http'}://${host}${c.path || '/'}`;
+      try {
+        await chrome.cookies.remove({ url, name: c.name });
+        removed++;
+      } catch {
+        /* 单个失败不影响整体 */
+      }
+    }
+  } catch (e) {
+    log(`清理登录态失败：${e.message}`, 'err');
+  }
+
+  // 内存状态复位
+  S.loggedIn = false;
+  S.groupID = '';
+  S.group = null;
+  S.me = null;
+  S.depts = [];
+  S.persons = [];
+  S.memberDept = new Map();
+  S.baseAssign = new Map();
+  S.manual = { depts: [], assign: {} };
+  S.userSel = new Set();
+  S.wmSel = new Set();
+  clearCache({ silent: true });
+
+  $('conn').className = 'pill pill-warn';
+  $('conn').textContent = '未登录';
+  $('groupName').textContent = '';
+  $('accountName').textContent = '';
+  $('vipTip').textContent = '';
+  $('vipBanner').hidden = true;
+  $('accountBtn').textContent = '登录';
+
+  log(`已退出登录（清理 ${removed} 个 cookie）`, 'ok');
+  if (thenLogin) await openLoginDlg();
+}
+
 // ============ 连接 + 组织架构 ============
 async function connect({ silent = false } = {}) {
   try {
@@ -394,6 +441,8 @@ async function connect({ silent = false } = {}) {
       $('conn').className = 'pill pill-ok';
       $('conn').textContent = '已连接';
       $('groupName').textContent = S.group?.group_name || '';
+      $('accountName').textContent = S.me?.nickname ? `账号：${S.me.nickname}` : '';
+      $('accountBtn').textContent = '切换账号';
       const exp = S.group?.vip_info?.expire_time;
       $('vipTip').textContent = exp ? `会员 ${Math.max(0, Math.ceil((exp * 1000 - Date.now()) / DAY))} 天后到期` : '';
       renderVipBanner();
@@ -1515,6 +1564,10 @@ function bind() {
     };
   });
 
+  $('accountBtn').onclick = () => {
+    if (S.loggedIn) signOut({ thenLogin: true });
+    else openLoginDlg();
+  };
   $('loginPopup').onclick = loginInPopup;
   $('loginRetry').onclick = async () => {
     if (await afterLogin()) $('loginDlg').hidden = true;
