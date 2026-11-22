@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "今日水印相机 · 团队照片归档",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "把你自己团队的今日水印相机照片/视频，按日期区间和成员姓名归档到本地文件夹。",
   "permissions": [
     "tabs",

@@ -134,7 +134,7 @@ const addMonths = (d, n) => new Date(d.getFullYear(), d.getMonth() + n, 1);
 
 // ============ 状态 ============
 const S = {
-  tabId: null, loggedIn: false, groupID: '', group: null,
+  tabId: null, loggedIn: false, groupID: '', group: null, me: null, accountKey: '',
   depts: [], persons: [], memberDept: new Map(),
   from: '', to: '', rangeLabel: '',
   userSel: new Set(), wmSel: new Set(), wmDefs: [],
@@ -364,7 +364,9 @@ async function afterLogin() {
     return false;
   }
   try {
+    await loadAccountSettings();
     await loadOrg();
+    refreshFilterLabels();
   } catch (e) {
     log('读取组织架构失败：' + e.message, 'err');
   }
@@ -380,6 +382,46 @@ async function loginInPopup() {
   } catch (e) {
     log('打开登录窗口失败：' + e.message, 'err');
   }
+}
+
+// ============ 账号级配置（按账号分别保存，清理照片缓存不影响） ============
+const SETTINGS_KEY = 'wmc-settings-v2';
+
+async function loadAccountSettings() {
+  let all = {};
+  try {
+    all = (await chrome.storage.local.get(SETTINGS_KEY))[SETTINGS_KEY] || {};
+  } catch {
+    all = {};
+  }
+  const s = all[S.accountKey] || {};
+  S.dl = {
+    levels: Array.isArray(s.levels) && s.levels.length === 3 ? s.levels : ['person', 'date', ''],
+    tokens: Array.isArray(s.tokens) && s.tokens.length ? s.tokens : ['person', 'date', 'time', 'wm'],
+  };
+  S.wmSel = new Set(s.wmSel || []);
+  S.userSel = new Set(s.userSel || []);
+  refreshFilterLabels();
+}
+
+async function saveAccountSettings() {
+  try {
+    const all = (await chrome.storage.local.get(SETTINGS_KEY))[SETTINGS_KEY] || {};
+    all[S.accountKey] = {
+      levels: S.dl.levels,
+      tokens: S.dl.tokens,
+      wmSel: [...S.wmSel],
+      userSel: [...S.userSel],
+    };
+    await chrome.storage.local.set({ [SETTINGS_KEY]: all });
+  } catch (e) {
+    log(`保存配置失败：${e.message}`, 'err');
+  }
+}
+
+function refreshFilterLabels() {
+  $('memberBtn').textContent = `筛选人员 · ${S.userSel.size ? `已选 ${S.userSel.size} 人` : '全部成员'} ▾`;
+  $('wmBtn').textContent = `筛选水印 · ${S.wmSel.size ? `已选 ${S.wmSel.size} 个` : '全部'} ▾`;
 }
 
 // ============ 退出 / 切换账号 ============
@@ -412,9 +454,10 @@ async function signOut({ thenLogin = true } = {}) {
   S.persons = [];
   S.memberDept = new Map();
   S.baseAssign = new Map();
-  S.manual = { depts: [], assign: {} };
+  S.manual = { depts: [], assign: {} }; // 内存清空；存储按账号保留，重新登录后恢复
   S.userSel = new Set();
   S.wmSel = new Set();
+  S.dl = { levels: ['person', 'date', ''], tokens: ['person', 'date', 'time', 'wm'] };
   clearCache({ silent: true });
 
   $('conn').className = 'pill pill-warn';
@@ -437,6 +480,7 @@ async function connect({ silent = false } = {}) {
     S.groupID = ctx?.groupID || '';
     S.group = ctx?.group || null;
     S.me = ctx?.me || null;
+    S.accountKey = S.me?.user_id || S.groupID || '';
     if (S.loggedIn) {
       $('conn').className = 'pill pill-ok';
       $('conn').textContent = '已连接';
@@ -567,7 +611,7 @@ async function loadGroups() {
   } catch {
     all = {};
   }
-  const mine = all[S.groupID] || { depts: [], assign: {} };
+  const mine = all[S.accountKey] || all[S.groupID] || { depts: [], assign: {} }; // 兼容旧版本的 groupID 键
   mine.depts = mine.depts || [];
   mine.assign = mine.assign || {};
   S.manual = mine;
@@ -581,7 +625,7 @@ async function saveGroups() {
   } catch {
     all = {};
   }
-  all[S.groupID] = S.manual;
+  all[S.accountKey] = S.manual;
   await chrome.storage.local.set({ [LS_KEY]: all });
 }
 
@@ -1338,6 +1382,7 @@ function renderDownloadDlg() {
       if (S.dl.tokens.length <= 1) return log('至少要保留一个命名字段', 'err');
       S.dl.tokens = S.dl.tokens.filter((x) => x !== b.dataset.rm);
       renderDownloadDlg();
+      saveAccountSettings();
     };
   });
   const addable = Object.entries(TOKEN).filter(([k]) => !S.dl.tokens.includes(k));
@@ -1442,7 +1487,7 @@ async function downloadItems(items) {
     $('btnDownload').disabled = false;
     setBar(0);
   }
-  if ($('cleanAfter').checked) clearCache({ silent: true });
+  clearCache({ silent: true }); // 只清照片/视频缓存，配置与账号信息保留
 }
 
 // ============ 导出清单（只含元数据，不含照片）============
@@ -1543,16 +1588,17 @@ function bind() {
   };
   $('memberOk').onclick = () => {
     S.userSel = new Set(S.mTemp);
-    $('memberBtn').textContent =
-      `筛选人员 · ${S.userSel.size ? `已选 ${S.userSel.size} 人` : '全部成员'} ▾`;
+    refreshFilterLabels();
     $('memberDlg').hidden = true;
+    saveAccountSettings();
   };
 
   // 水印弹窗
   $('wmOk').onclick = () => {
     S.wmSel = new Set(S.wmTemp);
-    $('wmBtn').textContent = `筛选水印 · ${S.wmSel.size ? `已选 ${S.wmSel.size} 个` : '全部'} ▾`;
+    refreshFilterLabels();
     $('wmDlg').hidden = true;
+    saveAccountSettings();
   };
 
   // 快捷日期
@@ -1633,6 +1679,7 @@ function bind() {
     $(id).onchange = () => {
       S.dl.levels[idx] = $(id).value;
       renderDownloadDlg();
+      saveAccountSettings();
     };
   });
   $('dlTokenAdd').onchange = () => {
@@ -1641,9 +1688,11 @@ function bind() {
     S.dl.tokens.push(v);
     $('dlTokenAdd').value = '';
     renderDownloadDlg();
+    saveAccountSettings();
   };
   $('dlGo').onclick = async () => {
     $('downloadDlg').hidden = true;
+    await saveAccountSettings(); // 目录分层 + 命名方式按账号记住
     await downloadItems(S.pending);
   };
 
@@ -1673,7 +1722,9 @@ function bind() {
     return;
   }
   try {
+    await loadAccountSettings(); // 按账号恢复：命名方式/目录分层/筛选
     await loadOrg();
+    refreshFilterLabels();
     log(
       `就绪：已连接「${S.group?.group_name || ''}」，${S.persons.length} 位成员，${S.depts.length} 个部门。`,
       'ok',
